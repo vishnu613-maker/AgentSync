@@ -1,0 +1,11 @@
+[tool.poetry]
+name = "agentsync"
+version = "0.1.0"
+description = "Federated Multi-Agent Context Exchange System"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+
+[tool.black]
+line-length = 88
+target-version = ['py311']
