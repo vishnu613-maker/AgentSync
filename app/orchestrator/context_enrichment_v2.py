@@ -60,9 +60,7 @@ class ContextEnrichmentV2:
     async def enrich_tasks_with_context(
         self,
         user_input: str,
-        tasks: List[Dict[str, Any]],
-        agent_id: int = 1,
-        task_response: Optional[Dict[str, Any]] = None
+        task_response: List[Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
         """
         Main enrichment function - processes each task
@@ -96,7 +94,7 @@ class ContextEnrichmentV2:
         
         enriched_tasks = []
         
-        for task in tasks:
+        for task in task_response:
             logger.info(f"[CONTEXT_ENRICHMENT] Processing task: {task.get('action')}")
             
             # Skip if doesn't need context
@@ -117,7 +115,7 @@ class ContextEnrichmentV2:
                         logger.info(f"[CONTEXT_ENRICHMENT] ✅ Generated instruction: {instruction}")
                         return (True, instruction, None)
             
-            # TIER 1: Search ChromaDB using search_words
+            # TIER 2: Search ChromaDB using search_words
             search_words = task.get("search_words")
             
             if search_words:
@@ -141,8 +139,7 @@ class ContextEnrichmentV2:
                     enriched_task = await self._generate_instruction_from_chromadb(
                         user_input=user_input,
                         task=task,
-                        chromadb_results=chromadb_results,
-                        task_response=task_response  # NEW: Pass task_response
+                        chromadb_results=chromadb_results
                     )
                     
                     if enriched_task:
@@ -154,20 +151,11 @@ class ContextEnrichmentV2:
                 
                 logger.info(f"[CONTEXT_ENRICHMENT] Insufficient context in ChromaDB")
             
-        #     # TIER 2: Keep need_context=true and set target_agent for later request
+        #     # TIER 3: Keep need_context=true and set target_agent for later request
         #     logger.info(f"[CONTEXT_ENRICHMENT] TIER 2: Keeping need_context=true, will request from agent")
             
-        #     task_for_agent = {
-        #         "need_context": True,
-        #         "action": task.get("action"),
-        #         "target_agent": task.get("agent_type", "tasks"),
-        #         "query": task.get("query"),
-        #         "missing_params": task.get("missing_params", [])
-        #     }
-            
-        #     enriched_tasks.append(task_for_agent)
+        #     code for requesting context from agent
         
-        # return enriched_tasks
         return enriched_tasks
             
     
@@ -175,8 +163,7 @@ class ContextEnrichmentV2:
         self,
         user_input: str,
         task: Dict[str, Any],
-        chromadb_results: List[Dict[str, Any]],
-        task_response: Optional[Dict[str, Any]] = None  # NEW: Add task_response parameter
+        chromadb_results: List[Dict[str, Any]]
     ) -> Optional[Dict[str, Any]]:
         """
         Use LLM to generate instruction from ChromaDB context
@@ -196,20 +183,20 @@ class ContextEnrichmentV2:
             
             # NEW: Format task_response if available
             task_response_text = ""
-            if task_response:
+            if task:
                 task_response_text = f"""
-TASK AGENT RESPONSE (Full Context):
-{json.dumps(task_response, indent=2)}
+AGENT RESPONSE:
+{json.dumps(task, indent=2)}
 
 Task Response Details:
-- search_words: {task_response.get('search_words', 'N/A')}
-- query: {task_response.get('query', 'N/A')}
-- missing_params: {task_response.get('missing_params', [])}
-- action: {task_response.get('action', 'N/A')}
+- search_words: {task.get('search_words', 'N/A')}
+- query: {task.get('query', 'N/A')}
+- missing_params: {task.get('missing_params', [])}
+- action: {task.get('action', 'N/A')}
 """
             
             # Create prompt for LLM to generate instruction
-            prompt = f"""You are a context fulfilling agent. There are 3 main agents Email Agent, Calendar Agent and Tasks Agent from who you get the tasks to be performed that had insufficient Context. Your job is to generate a clear instruction for the action required using the context retrieved from ChromaDB.
+            prompt = f"""You are a context fulfilling assistant. There are 3 main agents Email Agent, Calendar Agent and Tasks Agent from who you get the tasks to be performed that had insufficient Context. Your job is to generate a clear instruction for the action required using the context retrieved from ChromaDB.
 
 USER INPUT: {user_input}
 
@@ -292,7 +279,7 @@ Examplle 3:
     {{"need_context": false, "action": "send_email", "instruction": "Send an email to Vishnu K(vishnu3sgk08@gmail.com) with subject Greetings and body Hope you are doing well"}}
     ]
     If context is NOT sufficient in chromadb also:
-    Then rerurn a error message asking tthe user to provide the missing context like: 
+    Then rerurn a error message asking the user to provide the missing context like: 
     [
     {{"need_context": true, "action": "send_email",  "error_msg": "This user request: {user_input} doest have enough context. Missing <missing parameters> related to <email recipient mentioned in user input>", "missing_params": ["recipient_email"]}}
     ]

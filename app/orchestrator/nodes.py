@@ -23,8 +23,8 @@ from app.config import get_settings
 from app.agents.registry import agent_registry
 
 
-from app.orchestrator.context_analyzer import get_context_analyzer
-from app.services.context_retrieval_service import get_context_retrieval_service
+# from app.orchestrator.context_analyzer import get_context_analyzer
+# from app.services.context_retrieval_service import get_context_retrieval_service
 
 
 logger = logging.getLogger(__name__)
@@ -207,7 +207,7 @@ class OrchestratorNodes:
         self.model = "gpt-oss:20b"
         self.settings = get_settings()
         
-        self.context_analyzer = get_context_analyzer(llm_service)
+        # self.context_analyzer = get_context_analyzer(llm_service)
         
         
 
@@ -385,15 +385,16 @@ class OrchestratorNodes:
             llm_service=self.llm_service
         )
         
-        # Get task_response from state
-        task_response_data = state.get("raw_task_response")
+        # # Get task_response from state
+        # task_response_data = state.get("raw_task_response")
+
+        # logger.info(f"[CONTEXT_ENRICHMENT] raw_task_response: {task_response_data}")
         
         # Enrich single task (TIER 1: ChromaDB)
         enriched_tasks = await enricher.enrich_tasks_with_context(
             user_input=user_input,
-            tasks=[task_response],  # Single task as list
-            agent_id=1,
-            task_response=task_response_data
+            task_response=[task_response],  
+            # task_response=task_response_data
         )
         
         logger.info(f"[CONTEXT_ENRICHMENT] Enrichment complete")
@@ -993,7 +994,7 @@ class OrchestratorNodes:
                                 # Return immediately - don't create fallback!
                                 return state
                         
-                        2
+                        
                         # Validate action exists in tools
                         available_tool_names = [t["name"] for t in tools]
                         
@@ -1478,10 +1479,6 @@ Example responses:
         return state
 
             
-
-    
-    
-
 
 
     async def aggregate_results_node(self, state: OrchestratorState) -> OrchestratorState:

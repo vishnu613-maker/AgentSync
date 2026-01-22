@@ -1,7 +1,8 @@
-penv/
+penv
 
 alembic.ini
 
+data
 
 # # Python
 # __pycache__/

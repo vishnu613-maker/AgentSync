@@ -19,7 +19,7 @@ huggingface-hub==0.19.4
 transformers==4.35.2
 
 # Message Queue
-redis==5.0.1
+redis
 
 # HTTP Client
 httpx==0.24.1
@@ -46,6 +46,7 @@ pytest-asyncio==0.21.1
 black==23.12.0
 flake8==6.1.0
 pre-commit==3.6.0
+
 
 # # RPC
 # python-jsonrpcy

@@ -143,7 +143,7 @@ class AgentOrchestratorGraph:
                 
                 history = json.loads(history_json)
                 logger.info(f"[ORCHESTRATOR] ✅ Loaded {len(history)} messages from Redis")
-                # logger.info(f"[ORCHESTRATOR] History content: {history}")
+                logger.info(f"[ORCHESTRATOR] History content: {history}")
                 return history
             
             logger.info("[ORCHESTRATOR] No previous history found in Redis")
