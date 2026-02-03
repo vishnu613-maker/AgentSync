@@ -16,17 +16,15 @@ class CalendarAgent(BaseAgent):
 
     def __init__(
         self,
-        agent_id: int,
+        agent_id: int = 2,
         name: str = "CalendarAgent",
-        user_id: int = 1,
         mq_service: Optional[MessageQueueService] = None,
         zapier_mcp_url: Optional[str] = None,
         zapier_api_key: Optional[str] = None
     ):
-        super().__init__(name=name, agent_type="calendar", agent_id=agent_id, user_id=user_id)
+        super().__init__(name=name, agent_type="calendar", agent_id=agent_id)
 
         self.agent_id = agent_id
-        self.user_id = user_id
         self.status = "idle"
 
         self.mq_service = mq_service
@@ -138,8 +136,36 @@ class CalendarAgent(BaseAgent):
             logger.error(f"[CALENDAR_AGENT] Error: {e}", exc_info=True)
             self.status = "error"
             return await self.handle_error(e, task)
+        
+    async def request_context(self, query):
+        
+        logger.info(f"Context Request Sent to Calendar Agent for query: {query}")
+        
+        try:
+            # ✅ Find tool by action name
+            tool = {
+                "name": "find_events",
+                "zapier_name": "google_calendar_find_events",
+                "description": "Find a specific calendar event",
+                "required_params": ["instructions"],
+                "optional_params": []
+            }
+            
+            if tool:
+                parameters = {"instructions": query}
+                result = await self._execute_tool(tool, parameters)
+            else:
+                result = self._create_result(
+                    status="failure"
+                )
+            
+            return result
+        
+        except Exception as e:
+            logger.error(f"[EMAIL_AGENT] Error: {e}", exc_info=True)
 
-    async def _execute_tool(self, tool: Dict[str, Any], parameters: Dict[str, Any], user_input: str = "") -> Dict[str, Any]:
+
+    async def _execute_tool(self, tool: Dict[str, Any], parameters: Dict[str, Any], user_input: Optional[str] = None) -> Dict[str, Any]:
         """
         Execute any calendar tool dynamically using instructions
 
@@ -214,7 +240,6 @@ class CalendarAgent(BaseAgent):
             "name": self.name,
             "type": self.agent_type,
             "status": self.status,
-            "user_id": self.user_id,
             "tools": [
                 {
                     "name": t["name"],

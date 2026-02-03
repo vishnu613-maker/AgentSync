@@ -18,15 +18,14 @@ class TasksAgent(BaseAgent):
 
     def __init__(
         self,
-        agent_id: int,
+        agent_id: int = 3,
         name: str = "TasksAgent",
-        user_id: int = 1,
         mq_service: Optional[MessageQueueService] = None,
         zapier_mcp_url: Optional[str] = None,
         zapier_api_key: Optional[str] = None,
         llm_service: Optional[LLMService] = None
     ):
-        super().__init__(name=name, agent_type="tasks", agent_id=agent_id, user_id=user_id)
+        super().__init__(name=name, agent_type="tasks", agent_id=agent_id)
         self.status = "idle"
         self.mq_service = mq_service
         self.zapier_mcp_url = zapier_mcp_url or get_settings().ZAPIER_MCP_SERVER_URL
@@ -126,8 +125,43 @@ class TasksAgent(BaseAgent):
             logger.error(f"[TASKS_AGENT] Error: {e}", exc_info=True)
             self.status = "error"
             return await self.handle_error(e, task)
+        
 
-    async def _execute_tool(self, tool: Dict[str, Any], parameters: Dict[str, Any], user_input: str = "") -> Dict[str, Any]:
+    async def request_context(self, query):
+        
+        logger.info(f"Context Request Sent to Tasks Agent for query: {query}")
+        
+        try:
+            # ✅ Find tool by action name
+            tool = {
+                "name": "find_task",
+                "zapier_name": "google_tasks_find_task",
+                "description": "Searches for an incomplete task.",
+                "required_params": ["instructions"],
+                "optional_params": ["list", "title"],
+                "intent_keywords": ["find", "search", "look for", "locate", "check task"]
+            }
+            
+            if tool:
+                parameters = {"instructions": query}
+                result = await self._execute_tool(tool, parameters)
+            else:
+                result = self._create_result(
+                    status="failure"
+                )
+            
+            return result
+        
+        except Exception as e:
+            logger.error(f"[EMAIL_AGENT] Error: {e}", exc_info=True)
+            return {
+                "status": "failure",
+                "error": str(e),
+                "data": {}
+            }
+
+
+    async def _execute_tool(self, tool: Dict[str, Any], parameters: Dict[str, Any], user_input: Optional[str] = None) -> Dict[str, Any]:
         """Execute any tasks tool dynamically"""
         tool_name = tool["name"]
 
@@ -188,7 +222,6 @@ class TasksAgent(BaseAgent):
             "name": self.name,
             "type": self.agent_type,
             "status": self.status,
-            "user_id": self.user_id,
             "tools": [
                 {
                     "name": t["name"],

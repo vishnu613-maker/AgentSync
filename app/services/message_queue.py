@@ -11,15 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 class MessageQueueService:
-    """
-    Manages task queuing and result collection via Redis
     
-    Queue structure:
-    - email_tasks: Queue of email tasks
-    - calendar_tasks: Queue of calendar tasks
-    - slack_tasks: Queue of slack tasks
-    - {task_id}_result: Result from agent execution
-    """
     
     def __init__(self, redis_url: str):
         self.redis_url = redis_url
@@ -38,16 +30,7 @@ class MessageQueueService:
             logger.info("[MQ] Disconnected from Redis")
     
     async def enqueue_task(self, queue_key: str, task: Dict[str, Any]) -> str:
-        """
-        Add task to queue
         
-        Args:
-            queue_key: Queue name (e.g., "email_tasks", "calendar_tasks")
-            task: Task dictionary
-        
-        Returns:
-            Task ID
-        """
         if not self.redis_client:
             await self.connect()
         
@@ -61,16 +44,7 @@ class MessageQueueService:
         return task_id
     
     async def dequeue_task(self, queue_key: str, timeout: int = 5) -> Optional[Dict[str, Any]]:
-        """
-        Dequeue task from queue (blocking, waits for task)
         
-        Args:
-            queue_key: Queue name
-            timeout: Wait timeout in seconds
-        
-        Returns:
-            Task dictionary or None if timeout
-        """
         if not self.redis_client:
             await self.connect()
         

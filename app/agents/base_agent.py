@@ -18,11 +18,10 @@ class BaseAgent(ABC):
     ✅ UPDATED: Dynamic tool name mapping + instructions parameter for Zapier MCP
     """
     
-    def __init__(self, name: str, agent_type: str, agent_id: int = 1, user_id: int = 1):
+    def __init__(self, name: str, agent_type: str, agent_id: int = 1):
         self.name = name
         self.agent_type = agent_type  # "email", "calendar", "slack"
         self.agent_id = agent_id
-        self.user_id = user_id
         self.execution_id = str(uuid.uuid4())
     
     @abstractmethod

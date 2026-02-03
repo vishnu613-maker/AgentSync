@@ -19,15 +19,14 @@ class EmailAgent(BaseAgent):
 
     def __init__(
         self,
-        agent_id: int,
+        agent_id: int = 1,
         name: str = "EmailAgent",
-        user_id: int = 1,
         mq_service: Optional[MessageQueueService] = None,
         zapier_mcp_url: Optional[str] = None,
         zapier_api_key: Optional[str] = None,
         llm_service: Optional[LLMService] = None
     ):
-        super().__init__(name=name, agent_type="email", agent_id=agent_id, user_id=user_id)
+        super().__init__(name=name, agent_type="email", agent_id=agent_id)
         
         self.status = "idle"
         self.mq_service = mq_service
@@ -165,17 +164,7 @@ class EmailAgent(BaseAgent):
         return []
 
     async def execute(self, task: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Execute email task via instructions from orchestrator
         
-        Task format: {
-            "action": "send_email",
-            "parameters": {
-                "instructions": "Send email to john@example.com with subject Hello"
-            },
-            "user_input": "original user input"
-        }
-        """
         logger.info(f"[EMAIL_AGENT] Executing: {task.get('action')}")
         
         action = task.get("action", "send_email")
@@ -203,8 +192,38 @@ class EmailAgent(BaseAgent):
             logger.error(f"[EMAIL_AGENT] Error: {e}", exc_info=True)
             self.status = "error"
             return await self.handle_error(e, task)
+        
 
-    async def _execute_tool(self, tool: Dict[str, Any], parameters: Dict[str, Any], user_input: str = "") -> Dict[str, Any]:
+    async def request_context(self, query):
+        
+        logger.info(f"Context Request Sent to Email Agent for query: {query}")
+        
+        try:
+            # ✅ Find tool by action name
+            tool = {
+                "name": "find_email",
+                "zapier_name": "gmail_find_email",
+                "description": "Find an email message",
+                "required_params": ["instructions"],
+                "optional_params": []
+            }
+            
+            if tool:
+                parameters = {"instructions": query}
+                result = await self._execute_tool(tool, parameters)
+            else:
+                result = self._create_result(
+                    status="failure"
+                )
+            
+            return result
+        
+        except Exception as e:
+            logger.error(f"[EMAIL_AGENT] Error: {e}", exc_info=True)
+            
+
+
+    async def _execute_tool(self, tool: Dict[str, Any], parameters: Dict[str, Any], user_input: Optional[str] = None) -> Dict[str, Any]:
         """
         Execute any email tool dynamically using instructions
         
@@ -285,7 +304,6 @@ class EmailAgent(BaseAgent):
             "name": self.name,
             "type": self.agent_type,
             "status": self.status,
-            "user_id": self.user_id,
             "tools": [
                 {
                     "name": t["name"],

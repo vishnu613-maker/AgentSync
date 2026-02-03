@@ -8,7 +8,8 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 import logging
 import json
-
+import time
+from uuid import uuid4
 from app.database.models import AgentContext, ContextRequest, Agent
 from app.database.connection import SessionLocal
 
@@ -341,150 +342,194 @@ class ContextDBService:
     
     # ==================== ContextRequest Operations ====================
     
-    def create_context_request(
+    def _log_context_request_start(
         self,
-        requesting_agent_id: int,
-        responding_agent_id: int,
-        query: str,
-        request_type: str = "context_query"
-    ) -> Optional[Dict[str, Any]]:
+        target_agent: str,
+        requester_agent: str,
+        query: str
+    ) -> str:
         """
-        Create new context request (agent-to-agent communication)
-        
-        Args:
-            requesting_agent_id: Agent ID making the request
-            responding_agent_id: Agent ID that will respond
-            query: The context query/request
-            request_type: Type of request
-            
-        Returns:
-            ContextRequest dictionary or None if failed
+        Log context request START to database.
+        Creates a pending row in context_requests and returns request_id.
         """
         try:
-            import uuid
-            
-            request_id = f"req_{requesting_agent_id}_{responding_agent_id}_{uuid.uuid4().hex[:8]}"
-            
-            new_request = ContextRequest(
-                request_id=request_id,
-                requester_id=requesting_agent_id,
-                target_id=responding_agent_id,
-                query=query,
-                request_type=request_type,
-                status="pending",
-                created_at=datetime.utcnow()
-            )
-            
-            self.db.add(new_request)
-            self.db.commit()
-            self.db.refresh(new_request)
-            
-            logger.info(f"[CONTEXT_DB] Created context request: {request_id}")
-            
-            return {
-                "id": new_request.id,
-                "request_id": new_request.request_id,
-                "requester_id": new_request.requester_id,
-                "target_id": new_request.target_id,
-                "query": new_request.query,
-                "request_type": new_request.request_type,
-                "status": new_request.status,
-                "created_at": new_request.created_at.isoformat()
+            request_id = str(uuid4())
+
+            # Map logical agent name → numeric agent.id
+            agent_id_map = {
+                "email": 1,
+                "calendar": 2,
+                "tasks": 3,
             }
-            
+
+
+            context_request = ContextRequest(
+                request_id=request_id,
+                requester_id=agent_id_map.get(requester_agent, 3),
+                target_id=agent_id_map.get(target_agent, 3),
+                query=query,
+                request_type="context_query",
+                status="pending",
+                created_at=datetime.utcnow(),
+            )
+
+            self.db.add(context_request)
+            self.db.commit()
+
+            logger.info("[CONTEXT_ENRICHMENT] TIER 3 Logged context request start")
+            logger.info(f"[CONTEXT_ENRICHMENT] TIER 3 request_id={request_id}")
+            logger.info(f"[CONTEXT_ENRICHMENT] TIER 3 target_agent={target_agent}")
+            logger.debug(f"[CONTEXT_ENRICHMENT] TIER 3 query={query}")
+
+            return request_id
+
         except Exception as e:
-            self.db.rollback()
-            logger.error(f"[CONTEXT_DB] Failed to create context request: {e}", exc_info=True)
-            return None
+            logger.error(
+                f"[CONTEXT_ENRICHMENT] TIER 3 Error logging request start: {e}",
+                exc_info=True,
+            )
+            # Do not break TIER 3 flow because of logging
+            return str(uuid4())
+        
+
+    def _extract_response_summary(
+        self,
+        agent_response: Dict[str, Any],
+        agent_name: str,
+    ) -> str:
+        """
+        Extract a concise JSON summary of the agent response for response_summary.
+        Handles the nested Zapier/MCP shape you showed in the logs.
+        """
+        try:
+            data = agent_response.get("data", {})
+
+            resolved_params: Dict[str, Any] = {}
+            results_count = 0
+            execution_status = "UNKNOWN"
+
+            # your logs show: data["result"]["result"]["content"][0]["text"] = nested JSON string
+            if isinstance(data, dict):
+                result = data.get("result", {})
+                if isinstance(result, dict):
+                    inner_result = result.get("result", {})
+                    if isinstance(inner_result, dict):
+                        content = inner_result.get("content", [])
+                        if content and isinstance(content, list):
+                            first = content[0] or {}
+                            text_content = first.get("text", "{}")
+                            try:
+                                nested_json = json.loads(text_content)
+
+                                execution = nested_json.get("execution", {})
+                                if isinstance(execution, dict):
+                                    execution_status = execution.get("status", "UNKNOWN")
+                                    rp = execution.get("resolvedParams", {}) or {}
+                                    if isinstance(rp, dict):
+                                        for key, val in rp.items():
+                                            if isinstance(val, dict):
+                                                resolved_params[key] = {
+                                                    "label": val.get("label"),
+                                                    "value": val.get("value"),
+                                                    "status": val.get("status", "unknown"),
+                                                }
+
+                                # optional: top-level results array
+                                results = nested_json.get("results", [])
+                                if isinstance(results, list):
+                                    results_count = len(results)
+
+                            except (json.JSONDecodeError, TypeError) as e:
+                                logger.debug(
+                                    f"[CONTEXT_ENRICHMENT] TIER 3 Could not parse nested JSON: {e}"
+                                )
+
+            summary = {
+                "agent": agent_name,
+                "status": agent_response.get("status"),
+                "tool_used": data.get("tool", "unknown") if isinstance(data, dict) else "unknown",
+                "description": data.get("description", "") if isinstance(data, dict) else "",
+                "results_count": results_count,
+                "execution_status": execution_status,
+                "resolved_params": resolved_params,
+                "timestamp": (
+                    data.get("timestamp")
+                    if isinstance(data, dict)
+                    else datetime.utcnow().isoformat()
+                ),
+            }
+
+            # Limit size to avoid huge rows
+            summary_str = json.dumps(summary, indent=2)[:2000]
+
+            logger.info("[CONTEXT_ENRICHMENT] TIER 3 Extracted response summary")
+            logger.debug(f"[CONTEXT_ENRICHMENT] TIER 3 summary={summary_str}")
+
+            return summary_str
+
+        except Exception as e:
+            logger.error(
+                f"[CONTEXT_ENRICHMENT] TIER 3 Error extracting response summary: {e}",
+                exc_info=True,
+            )
+            return json.dumps(
+                {"error": str(e), "timestamp": datetime.utcnow().isoformat()}
+            )[:2000]
+        
     
-    
-    def update_context_request(
+
+    def _log_context_request_completion(
         self,
         request_id: str,
-        response_context_id: Optional[int] = None,
-        response_summary: Optional[str] = None,
-        status: str = "fulfilled",
-        latency_ms: Optional[float] = None
-    ) -> bool:
+        agent_response: Dict[str, Any],
+        agent_name: str,
+        start_time: float,
+    ) -> None:
         """
-        Update context request with response
-        
-        Args:
-            request_id: ContextRequest ID
-            response_context_id: ID of context provided in response
-            response_summary: Summary of response
-            status: Request status (fulfilled, timeout, error)
-            latency_ms: Response time in milliseconds
-            
-        Returns:
-            True if successful
+        Log context request COMPLETION to database.
+        Updates status, response_summary, latency_ms, completed_at.
         """
         try:
-            request = self.db.query(ContextRequest).filter(
-                ContextRequest.request_id == request_id
-            ).first()
-            
-            if request:
-                request.status = status
-                request.response_context_id = response_context_id
-                request.response_summary = response_summary
-                request.latency_ms = latency_ms
-                request.completed_at = datetime.utcnow()
-                
+            end_time = time.time()
+            latency_ms = (end_time - start_time) * 1000.0
+
+            response_summary = self._extract_response_summary(agent_response, agent_name)
+            status = "fulfilled" if agent_response.get("status") == "success" else "failure"
+
+            logger.info("[CONTEXT_ENRICHMENT] TIER 3 Logging context request completion")
+            logger.info(f"[CONTEXT_ENRICHMENT] TIER 3 request_id={request_id}")
+            logger.info(f"[CONTEXT_ENRICHMENT] TIER 3 status={status}")
+            logger.info(f"[CONTEXT_ENRICHMENT] TIER 3 latency_ms={latency_ms:.2f}")
+
+            ctx_req = (
+                self.db.query(ContextRequest)
+                .filter(ContextRequest.request_id == request_id)
+                .first()
+            )
+
+            if ctx_req:
+                ctx_req.status = status
+                ctx_req.response_summary = response_summary
+                ctx_req.latency_ms = latency_ms
+                ctx_req.completed_at = datetime.utcnow()
                 self.db.commit()
-                
-                logger.info(f"[CONTEXT_DB] Updated request {request_id}: {status}")
-                
-                return True
-            
-            logger.warning(f"[CONTEXT_DB] Request not found: {request_id}")
-            return False
-            
-        except Exception as e:
-            self.db.rollback()
-            logger.error(f"[CONTEXT_DB] Failed to update request: {e}", exc_info=True)
-            return False
-    
-    
-    def get_pending_requests(self, agent_id: int) -> List[Dict[str, Any]]:
-        """
-        Get pending context requests for an agent
-        
-        Args:
-            agent_id: Agent ID to get pending requests for
-            
-        Returns:
-            List of pending requests
-        """
-        try:
-            requests = self.db.query(ContextRequest).filter(
-                and_(
-                    ContextRequest.target_id == agent_id,
-                    ContextRequest.status == "pending"
+                logger.info(
+                    "[CONTEXT_ENRICHMENT] TIER 3 context_requests row updated successfully"
                 )
-            ).order_by(
-                desc(ContextRequest.created_at)
-            ).all()
-            
-            results = []
-            for req in requests:
-                result = {
-                    "id": req.id,
-                    "request_id": req.request_id,
-                    "requester_id": req.requester_id,
-                    "query": req.query,
-                    "request_type": req.request_type,
-                    "created_at": req.created_at.isoformat()
-                }
-                results.append(result)
-            
-            logger.info(f"[CONTEXT_DB] Retrieved {len(results)} pending requests for agent {agent_id}")
-            
-            return results
-            
+            else:
+                logger.warning(
+                    f"[CONTEXT_ENRICHMENT] TIER 3 context_requests row not found for {request_id}"
+                )
+
         except Exception as e:
-            logger.error(f"[CONTEXT_DB] Failed to get pending requests: {e}", exc_info=True)
-            return []
+            logger.error(
+                f"[CONTEXT_ENRICHMENT] TIER 3 Error logging request completion: {e}",
+                exc_info=True,
+            )
+            # Do not raise – keep TIER 3 flow running
+
+
+
     
     
     def get_request_history(

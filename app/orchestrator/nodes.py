@@ -7,7 +7,6 @@ FIXED: nodes.py with Dict Access - All state["key"] format
 ✅ WORKS: With LangGraph dict state objects
 """
 
-import subprocess
 import json
 import asyncio
 from typing import Dict, List, Any, Tuple, Optional
@@ -16,7 +15,7 @@ import logging
 import uuid
 import re
 
-from .state import OrchestratorState, AgentTask, TaskMetadata
+from .state import OrchestratorState, AgentTask
 from app.services.message_queue import MessageQueueService
 from app.services.llm_service import LLMService
 from app.config import get_settings
@@ -358,7 +357,7 @@ class OrchestratorNodes:
     
     
     
-    async def _analyze_and_enrich_context_v2(
+    async def _analyze_and_enrich_context(
         self,
         user_input: str,
         agent_name: str,
@@ -367,21 +366,14 @@ class OrchestratorNodes:
         available_tools: List[Dict],
         state: OrchestratorState
     ) -> Tuple[bool, Optional[str], Optional[str]]:
-        """
-        NEW V2: Simplified 2-tier context enrichment
-        
-        Returns: (has_context, enriched_instructions, error_msg)
-        - has_context: True if context found and instruction generated
-        - enriched_instructions: Complete instruction string
-        - error_msg: Error message if context insufficient
-        """
-        
-        logger.info(f"[CONTEXT_ENRICHMENT] Starting V2 enrichment for {action}")
         
         
-        from app.orchestrator.context_enrichment_v2 import ContextEnrichmentV2
+        logger.info(f"[CONTEXT_ENRICHMENT] Starting enrichment for {action}")
         
-        enricher = ContextEnrichmentV2(
+        
+        from app.orchestrator.context_enrichment import ContextEnrichment
+        
+        enricher = ContextEnrichment(
             llm_service=self.llm_service
         )
         
@@ -618,7 +610,7 @@ class OrchestratorNodes:
                         if need_context:
                             logger.info(f"[ORCHESTRATOR] Task needs context, starting enrichment")
                             
-                            has_context, enriched_instructions, error_msg = await self._analyze_and_enrich_context_v2(
+                            has_context, enriched_instructions, error_msg = await self._analyze_and_enrich_context(
                                 user_input=state["user_input"],
                                 agent_name=agent_name,
                                 task_response=task_spec,
@@ -970,7 +962,7 @@ class OrchestratorNodes:
                         if need_context:
                             logger.info(f"[ORCHESTRATOR] Task needs context, starting enrichment")
                             
-                            has_context, enriched_instructions, error_msg = await self._analyze_and_enrich_context_v2(
+                            has_context, enriched_instructions, error_msg = await self._analyze_and_enrich_context(
                                 user_input=state["user_input"],
                                 agent_name=agent_name,
                                 task_response=task_spec,
@@ -1178,7 +1170,7 @@ class OrchestratorNodes:
                         if need_context:
                             logger.info(f"[ORCHESTRATOR] Task needs context, starting enrichment")
                             
-                            has_context, enriched_instructions, error_msg = await self._analyze_and_enrich_context_v2(
+                            has_context, enriched_instructions, error_msg = await self._analyze_and_enrich_context(
                                 user_input=state["user_input"],
                                 agent_name=agent_name,
                                 task_response=task_spec,

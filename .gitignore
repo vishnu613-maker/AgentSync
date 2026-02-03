@@ -1,9 +1,12 @@
+penv/
 penv
 
 alembic.ini
 
+data/
 data
 
+data/sqlite
 # # Python
 # __pycache__/
 # *.py[cod]
